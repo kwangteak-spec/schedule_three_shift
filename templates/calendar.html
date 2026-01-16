@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <title>통합 근무표 시스템</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+        .calendar-cell {
+            height: 120px;
+            vertical-align: top;
+            cursor: pointer;
+        }
+
+        .calendar-cell:hover {
+            background-color: #f8f9fa;
+        }
+
+        .nt-badge {
+            background-color: #e2e3e5;
+            color: #41464b;
+        }
+
+        .support-badge {
+            background-color: #d1e7dd;
+            color: #0f5132;
+        }
+
+        .highlight-recommend {
+            background-color: #ffc107 !important;
+            color: #000 !important;
+            padding: 0 4px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+
+        .highlight-recommend-rest {
+            background-color: #ffc107 !important;
+            color: #000 !important;
+            padding: 0 4px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+
+        .highlight-recommend-cell {
+            background-color: #fff3cd !important;
+            /* Light yellow */
+            border: 2px solid #ffc107 !important;
+            position: relative;
+        }
+
+        .highlight-recommend-cell::after {
+            content: "추천";
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            font-size: 0.7rem;
+            color: #856404;
+            font-weight: bold;
+            z-index: 10;
+        }
+    </style>
+</head>
+
+<body class="container py-4">
+    <div class="d-flex justify-content-end align-items-center mb-3">
+        <h2 class="text-center flex-grow-1 m-0">{{ year }}년 {{ month }}월 근무표</h2>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#nightSupportModal">
+                야간 근무 지원 관리
+            </button>
+            <a href="{{ url_for('export_excel', year=year, month=month) }}" class="btn btn-success">
+                엑셀 다운로드
+            </a>
+        </div>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="btn-group">
+            <button class="btn btn-outline-primary"
+                onclick="location.href='/calendar?year={{year if month > 1 else year - 1}}&month={{month - 1 if month > 1 else 12}}'">이전달</button>
+            <button class="btn btn-outline-primary"
+                onclick="location.href='/calendar?year={{year if month < 12 else year + 1}}&month={{month + 1 if month < 12 else 1}}'">다음달</button>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4 text-center">
+        <div class="col-md-3">
+            <div class="card p-2">
+                <h6>법정근무일</h6>
+                <h4>{{stats.legal_days}}일</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card p-2">
+                <h6>총 근무시간</h6>
+                <h4>{{stats.hours}}h</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card p-2">
+                <h6>야간지원일</h6>
+                <h4>{{stats.support}}일</h4>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card p-2 border-primary" style="cursor: pointer;" data-bs-toggle="modal"
+                data-bs-target="#workSummaryModal">
+                <h6>개인별 근무일수</h6>
+                <button class="btn btn-sm btn-primary">요약 보기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Work Summary Modal -->
+    <div class="modal fade" id="workSummaryModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">📉 {{ month }}월 개인별 총 근무일수</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <table class="table table-sm text-center">
+                        <thead class="table-light">
+                            <tr>
+                                <th>이름</th>
+                                <th>근무 형태</th>
+                                <th>총 근무일수</th>
+                                <th>총 근무시간</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for s in staff_list %}
+                            {% set total = work_totals.get(s.name, {'days': 0, 'hours': 0}) %}
+                            <tr>
+                                <td><strong>{{ s.name }}</strong></td>
+                                <td>{{ s.shift_type }}조</td>
+                                <td><span class="badge bg-success">{{ total.days }}일</span></td>
+                                <td><span class="badge bg-info text-dark">{{ total.hours }}h</span></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Settings Column -->
+        <div class="col-md-3">
+            <!-- Night Support Settings -->
+            <div class="card p-3 shadow-sm mb-3 border-warning">
+                <h5>🌙 야간 지원 설정</h5>
+                <p class="text-muted small mb-2">오후조 인원을 야간 지원으로 지정</p>
+
+                <select id="supportStaffSelect" class="form-select mb-2">
+                    {% for s in staff_list %}
+                    {% if s.shift_type == 'B' %}
+                    <option value="{{s.name}}" data-off-days="{{s.off_days}}">{{s.name}} (B조)</option>
+                    {% endif %}
+                    {% endfor %}
+                </select>
+                <div class="input-group mb-2">
+                    <input type="number" id="supportDay" class="form-control" placeholder="일" min="1" max="31">
+                    <button class="btn btn-warning text-white" onclick="saveNightSupport()">지정</button>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <button class="btn btn-sm btn-info text-white" onclick="autoAssignSupport()">지원일 추천</button>
+                    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal"
+                        data-bs-target="#supportListModal">현황수정</button>
+                </div>
+            </div>
+
+            <!-- Extra Hours / General Settings -->
+            <div class="card p-3 shadow-sm mb-3">
+                <h5> 근무 스케줄 조정 </h5>
+                <select id="staffSelect" class="form-select mb-2" onchange="updateSidebarWorkHours()">
+                    <option value="">직원 선택</option>
+                    {% for s in staff_list %}<option value="{{s.name}}">{{s.name}}</option>{% endfor %}
+                </select>
+                <button class="btn btn-sm btn-warning w-100 mb-3" onclick="showScheduleRecommendations()">추천일
+                    확인</button>
+
+                <div id="sidebarHourInfo" class="mb-3 p-2 bg-light rounded" style="display: none; font-size: 0.9rem;">
+                    <div><strong>총 근무시간:</strong> <span id="sidebarTotalHours">0</span>h</div>
+                    <div><strong>법정 근무시간:</strong> {{ stats.hours }}h</div>
+                    <div id="overtimeArea" class="mt-1" style="font-weight: bold;">
+                        <span id="diffLabel">초과 시간:</span> <span id="sidebarOvertime">0</span>h
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="small text-muted mb-1">날짜 (일)</label>
+                        <input type="number" id="extraDay" class="form-control" placeholder="일" min="1" max="31">
+                    </div>
+                    <div class="col-6">
+                        <label class="small text-muted mb-1">근무 시간(h)</label>
+                        <input type="number" id="extraHours" class="form-control" placeholder="시간" value="8">
+                    </div>
+                </div>
+
+                <div class="d-flex gap-1 mb-2">
+                    <button class="btn btn-success flex-fill" onclick="saveExtraHours()">추가</button>
+                    <button class="btn btn-danger flex-fill" onclick="excludeFromWork()">제외</button>
+                    <button class="btn btn-outline-secondary flex-fill" onclick="deleteAdjustment()">복구</button>
+                </div>
+                <div class="text-muted smallest">※ [추가/제외] 시 해당 날짜의 기록을 덮어씁니다.</div>
+            </div>
+        </div>
+
+        <script>
+            // Store work totals for JS access
+            const workTotalsMap = JSON.parse('{{ work_totals | tojson | safe }}');
+            const targetHours = parseInt("{{ stats.hours }}");
+            const staffListData = {{ staff_list | tojson | safe }};
+
+            function saveExtraHours() {
+                const name = document.getElementById('staffSelect').value;
+                const day = document.getElementById('extraDay').value;
+                const hours = document.getElementById('extraHours').value;
+
+                if (!name || !day || !hours) {
+                    alert("직원, 날짜, 시간을 모두 입력해주세요.");
+                    return;
+                }
+
+                const data = {
+                    name: name,
+                    day: day,
+                    hours: hours,
+                    year: parseInt("{{ year }}"),
+                    month: parseInt("{{ month }}")
+                };
+                fetch('/save_extra_hours', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                }).then(r => r.json()).then(d => {
+                    if (d.status === 'success') location.reload();
+                });
+            }
+
+            function excludeFromWork() {
+                const name = document.getElementById('staffSelect').value;
+                const day = document.getElementById('extraDay').value;
+
+                if (!name || !day) {
+                    alert("직원과 날짜를 선택해주세요.");
+                    return;
+                }
+
+                if (!confirm(`${name}님을 ${day}일 근무에서 제외하시겠습니까?`)) return;
+
+                const data = {
+                    name: name,
+                    day: day,
+                    year: parseInt("{{ year }}"),
+                    month: parseInt("{{ month }}")
+                };
+                fetch('/exclude_from_work', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                }).then(r => r.json()).then(d => {
+                    if (d.status === 'success') location.reload();
+                });
+            }
+
+            function deleteAdjustment() {
+                const name = document.getElementById('staffSelect').value;
+                const day = document.getElementById('extraDay').value;
+
+                if (!name || !day) {
+                    alert("직원과 날짜를 선택해주세요.");
+                    return;
+                }
+
+                if (!confirm(`${name}님의 ${day}일 모든 수동 조정을 초기화하시겠습니까?`)) return;
+
+                const data = {
+                    name: name,
+                    day: day,
+                    year: parseInt("{{ year }}"),
+                    month: parseInt("{{ month }}")
+                };
+
+                // Clear ALL possible adjustment types including PARTIAL_OFF
+                const types = ['EXTRA_HOURS', 'OFF', 'NIGHT_SUPPORT', 'PARTIAL_OFF'];
+                Promise.all(types.map(type =>
+                    fetch('/delete_exception', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...data, type: type })
+                    })
+                )).then(() => {
+                    alert('조정이 초기화되었습니다.');
+                    location.reload();
+                });
+            }
+
+            function updateSidebarWorkHours() {
+                const name = document.getElementById('staffSelect').value;
+                const infoDiv = document.getElementById('sidebarHourInfo');
+
+                // Clear previous recommendations whenever staff changes
+                clearRecommendations();
+
+                if (!name || !workTotalsMap[name]) {
+                    infoDiv.style.display = 'none';
+                    return;
+                }
+
+                const totalDays = workTotalsMap[name].days;
+                const totalHours = workTotalsMap[name].hours;
+                const diff = totalHours - targetHours;
+
+                document.getElementById('sidebarTotalHours').innerText = totalHours;
+                const diffLabel = document.getElementById('diffLabel');
+                const overtimeSpan = document.getElementById('sidebarOvertime');
+                const overtimeArea = document.getElementById('overtimeArea');
+
+                if (diff >= 0) {
+                    diffLabel.innerText = "초과 시간:";
+                    overtimeSpan.innerText = diff;
+                    overtimeArea.style.color = diff > 0 ? '#dc3545' : '#198754';
+                } else {
+                    diffLabel.innerText = "부족한 시간:";
+                    overtimeSpan.innerText = Math.abs(diff);
+                    overtimeArea.style.color = '#0d6efd';
+                }
+
+                infoDiv.style.display = 'block';
+            }
+
+            function clearRecommendations() {
+                document.querySelectorAll('.highlight-recommend-rest').forEach(el => el.classList.remove('highlight-recommend-rest'));
+                document.querySelectorAll('.highlight-recommend-cell').forEach(el => el.classList.remove('highlight-recommend-cell'));
+            }
+
+            function showScheduleRecommendations() {
+                const name = document.getElementById('staffSelect').value;
+                if (!name) {
+                    alert("직원을 먼저 선택해주세요.");
+                    return;
+                }
+
+                // Clear existing first
+                clearRecommendations();
+
+                // Ensure stats are up to date (though they should be)
+                if (!workTotalsMap[name]) return;
+                const totalDays = workTotalsMap[name].days;
+                const totalHours = workTotalsMap[name].hours;
+
+                // Recommendation Logic
+                const legalDays = parseInt("{{ stats.legal_days }}");
+                const legalHours = targetHours;
+
+                // 1. Find staff off-days
+                var selectedStaff = staffListData.find(s => s.name === name);
+                if (!selectedStaff || !selectedStaff.off_days) {
+                    alert("고정 휴무일 정보가 없어 추천할 수 없습니다.");
+                    return;
+                }
+
+                // Parse off-days
+                const offDaysStr = selectedStaff.off_days.replace(/\|/g, ',');
+                const offDaysParts = offDaysStr.split(',');
+                var offDays = [];
+                for (var j = 0; j < offDaysParts.length; j++) {
+                    var parsed = parseInt(offDaysParts[j].trim());
+                    if (!isNaN(parsed)) {
+                        offDays.push(parsed);
+                    }
+                }
+
+                offDays.sort((a, b) => a - b);
+
+                if (offDays.length === 0) {
+                    alert("휴무일 설정이 없습니다.");
+                    return;
+                }
+
+                const year = parseInt("{{ year }}");
+                const month = parseInt("{{ month }}");
+                var recommendedWeekdays = [];
+                let type = "";
+
+                // Case A: Overtime
+                if (totalDays > legalDays || totalHours > legalHours) {
+                    type = "rest";
+                    if (offDays.includes(0) && offDays.includes(6)) {
+                        recommendedWeekdays.push(5);
+                        recommendedWeekdays.push(1);
+                    } else if (offDays.length >= 2) {
+                        const d1 = (offDays[0] - 1 + 7) % 7;
+                        const d2 = (offDays[offDays.length - 1] + 1) % 7;
+                        recommendedWeekdays.push(d1);
+                        recommendedWeekdays.push(d2);
+                    } else if (offDays.length === 1) {
+                        recommendedWeekdays.push((offDays[0] - 1 + 7) % 7);
+                        recommendedWeekdays.push((offDays[0] + 1) % 7);
+                    }
+                }
+                // Case B: Undertime
+                else if (totalHours < legalHours) {
+                    type = "work";
+                    recommendedWeekdays = [...offDays];
+                } else {
+                    alert("근무 시간/일수가 적정합니다. 추천할 조정이 없습니다.");
+                    return;
+                }
+
+                // Apply Highlights
+                if (recommendedWeekdays.length > 0) {
+                    let count = 0;
+                    const dayCells = document.querySelectorAll('td.calendar-cell');
+                    dayCells.forEach(cell => {
+                        const onclickAttr = cell.getAttribute('onclick');
+                        if (!onclickAttr) return;
+
+                        const dayMatch = onclickAttr.match(/\d+/);
+                        if (!dayMatch || dayMatch[0] === '0') return;
+
+                        const dayNum = parseInt(dayMatch[0]);
+                        const dayDate = new Date(year, month - 1, dayNum);
+                        const weekday = dayDate.getDay(); // 0=Sun
+
+                        if (recommendedWeekdays.includes(weekday)) {
+                            // Highlight Name Logic
+                            let nameFound = false;
+                            const workerDivs = cell.querySelectorAll('div');
+                            workerDivs.forEach(div => {
+                                const text = div.textContent || div.innerText;
+                                if (text.includes(name)) { // Name found
+                                    div.classList.add('highlight-recommend-rest');
+                                    nameFound = true;
+                                    count++;
+                                }
+                            });
+
+                            // If name not found (Undertime), highlight cell
+                            if (!nameFound && type === "work") {
+                                cell.classList.add('highlight-recommend-cell');
+                                count++;
+                            }
+                        }
+                    });
+
+                    if (count === 0) {
+                        alert("추천 가능한 날짜를 달력에서 찾을 수 없습니다.");
+                    }
+                }
+            }
+        </script>
+
+        <!-- Support List Modal -->
+        <div class="modal fade" id="supportListModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">야간 지원 지정 현황</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        {% if night_supports %}
+                        <ul class="list-group list-group-flush">
+                            {% for s in night_supports|sort(attribute='event_date') %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <span>
+                                    <strong>{{ s.event_date.day if s.event_date.day else s.event_date.split('-')[-1]|int
+                                        }}일</strong>:
+                                    {{ s.staff_name }}
+                                </span>
+                                <button class="btn btn-sm btn-link text-danger"
+                                    onclick="deleteNightSupport('{{ s.staff_name }}', '{{ s.event_date }}')">삭제</button>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% else %}
+                        <p class="text-center text-muted">지정된 지원이 없습니다.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Calendar Column -->
+        <div class="col-md-9">
+            <table class="table table-bordered shadow-sm">
+                <thead class="table-light text-center">
+                    <tr>
+                        <th class="text-danger">일</th>
+                        <th>월</th>
+                        <th>화</th>
+                        <th>수</th>
+                        <th>목</th>
+                        <th>금</th>
+                        <th class="text-primary">토</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for week in month_days %}
+                    <tr>
+                        {% for day in week %}
+                        <td class="calendar-cell" onclick="openDayModal('{{day}}')">
+                            {% if day != 0 %}
+                            <div class="fw-bold">{{day}}</div>
+                            {% if schedule_map and schedule_map.get(day) %}
+                            {% set daily = schedule_map[day] %}
+
+                            {% if daily['A'] %}
+                            <div style="font-size: 0.8rem; color: #0d6efd;">A: {{ daily['A']|join(', ') }}</div>
+                            {% endif %}
+
+                            {% if daily['B'] %}
+                            <div style="font-size: 0.8rem; color: #198754;">
+                                B:
+                                {% for name in daily['B'] %}
+                                <span class="staff-name-span" data-staff="{{name}}">{{name}}</span>{{ "," if not
+                                loop.last }}
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+
+                            {% if daily['C'] %}
+                            <div style="font-size: 0.8rem; color: #dc3545;">
+                                C:
+                                {% for name in daily['C'] %}
+                                {% if '(지)' in name %}
+                                <span class="badge bg-warning text-dark" style="font-size: 0.7rem;">{{name}}</span>
+                                {% else %}
+                                <span class="staff-name-span" data-staff="{{name}}">{{name}}</span>
+                                {% endif %}
+                                {{ "," if not loop.last }}
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+
+                            {% if daily['N'] %}
+                            <div style="font-size: 0.8rem; color: #6c757d;">
+                                N:
+                                {% for name in daily['N'] %}
+                                <span class="staff-name-span" data-staff="{{name}}">{{name}}</span>{{ "," if not
+                                loop.last }}
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                            {% endif %}
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        function saveNightSupport() {
+            const staff = document.getElementById('supportStaffSelect').value;
+            const day = document.getElementById('supportDay').value;
+
+            if (!staff || !day) {
+                alert("직원과 날짜를 선택해주세요.");
+                return;
+            }
+
+            const data = {
+                name: staff,
+                day: day,
+                year: parseInt("{{ year }}"),
+                month: parseInt("{{ month }}")
+            };
+
+            fetch('/save_night_support', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            }).then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        alert('야간 지원이 설정되었습니다.');
+                        location.reload();
+                    } else {
+                        alert('오류가 발생했습니다.');
+                    }
+                });
+        }
+
+        function autoAssignSupport() {
+            const select = document.getElementById('supportStaffSelect');
+            const staff = select.value;
+            const offDaysStr = select.options[select.selectedIndex].getAttribute('data-off-days');
+
+            // Clear existing highlights
+            document.querySelectorAll('.highlight-recommend').forEach(el => el.classList.remove('highlight-recommend'));
+
+            if (!staff || !offDaysStr) {
+                alert("직원을 선택하거나 고정 휴무일 정보를 확인해주세요.");
+                return;
+            }
+
+            // Parse first off-day (User uses standard JS getDay mapping: 0=Sun...6=Sat)
+            const offDays = offDaysStr.replace(/\|/g, ',').split(',').map(d => parseInt(d.trim()));
+            if (offDays.length === 0) return;
+
+            const firstOff = offDays[0];
+            const targetWeekday = (firstOff - 1 + 7) % 7;
+
+            const year = parseInt("{{ year }}");
+            const month = parseInt("{{ month }}");
+
+            // Highlight names in the calendar
+            const dayCells = document.querySelectorAll('td.calendar-cell');
+            let foundCount = 0;
+
+            dayCells.forEach((cell, index) => {
+                const day = cell.getAttribute('onclick')?.match(/\d+/)?.[0];
+                if (!day || day === '0') return;
+
+                const dayDate = new Date(year, month - 1, parseInt(day));
+                if (dayDate.getDay() === targetWeekday) {
+                    // Find staff span in this cell
+                    const staffSpan = cell.querySelector(`.staff-name-span[data-staff="${staff}"]`);
+                    if (staffSpan) {
+                        staffSpan.classList.add('highlight-recommend');
+                        foundCount++;
+                    }
+                }
+            });
+
+            if (foundCount === 0) {
+                alert("추천할 수 있는 근무일이 없습니다 (휴무일 설정을 확인하세요).");
+            }
+        }
+
+        function deleteNightSupport(name, date) {
+            if (!confirm(name + ' 지정을 삭제하시겠습니까?')) return;
+            fetch('/delete_night_support', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name, date: date })
+            }).then(r => r.json()).then(d => {
+                if (d.status === 'success') location.reload();
+            });
+        }
+
+        function openDayModal(day) {
+            if (day === '0' || day === '') return;
+
+            // Auto-populate the day inputs in the sidebar
+            document.getElementById('extraDay').value = day;
+            document.getElementById('supportDay').value = day;
+
+            // Visual feedback - scroll to adjustment area?
+            // document.getElementById('extraDay').focus();
+        }
+    </script>
+</body>
+
+</html>
