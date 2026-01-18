@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <title>3교대 근무표 관리</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            background-color: #f4f4f9;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+        }
+
+        .stats-box {
+            background: #e8f4f8;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 5px solid #3498db;
+        }
+    </style>
+</head>
+
+<body class="container py-4" data-year="{{ year }}" data-month="{{ month }}">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>📅 근무표 대시보드</h1>
+        <div class="d-flex gap-2 align-items-center">
+            <form action="{{ url_for('index') }}" method="GET" class="d-flex gap-2 align-items-center">
+                <select name="year" class="form-select form-select-sm">
+                    {% for y in range(2024, 2031) %}<option value="{{ y }}" {% if y==year %}selected{% endif %}>{{ y }}년
+                    </option>{% endfor %}
+                </select>
+                <select name="month" class="form-select form-select-sm">
+                    {% for m in range(1, 13) %}<option value="{{ m }}" {% if m==month %}selected{% endif %}>{{ m }}월
+                    </option>{% endfor %}
+                </select>
+                <button type="submit" class="btn btn-sm btn-outline-primary">선택</button>
+            </form>
+            <a href="{{ url_for('calendar_view', year=year, month=month) }}" class="btn btn-primary">달력 보기</a>
+        </div>
+    </div>
+
+    <div class="alert alert-info stats-box">
+        <h4 class="alert-heading">이번 달 목표</h4>
+        <p class="mb-1"><strong>법정근무일수:</strong> {{ target.workdays }}일 / <strong>총 법정 근무시간:</strong> {{
+            target.total_hours }}시간</p>
+        <div class="d-flex justify-content-between align-items-center">
+            <p class="mb-0"><strong>야간조총근무일수:</strong> {{ target.calc_1 }}일 / <strong>야간조지원일:</strong> {{
+                target.support_days }}일</p>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4>👥 직원 목록</h4>
+        </div>
+        <div class="card-body">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>이름</th>
+                        <th>근무 형태</th>
+                        <th>휴무일 설정</th>
+                        <th>관리</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for staff in staff_list %}
+                    <tr>
+                        <td>{{ staff.name }}</td>
+                        <td>{{ staff.shift_type }}</td>
+                        <td>{{ staff.off_days }}</td>
+                        <td><button class="btn btn-sm btn-outline-secondary"
+                                onclick="openEditModal('{{ staff.name }}', '{{ staff.shift_type }}', '{{ staff.off_days }}')">수정</button>
+                            <form action="{{ url_for('delete_staff') }}" method="POST" style="display:inline;"
+                                onsubmit="return confirm('정말 삭제하시겠습니까?');">
+                                <input type="hidden" name="name" value="{{ staff.name }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">삭제</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4>➕ 직원 추가</h4>
+        </div>
+        <div class="card-body">
+            <form action="{{ url_for('add_staff') }}" method="POST">
+                <div class="row">
+                    <div class="col-md-4 mb-3"><label>이름</label><input type="text" name="name" class="form-control"
+                            required></div>
+                    <div class="col-md-4 mb-3"><label>근무 형태</label><select name="shift" class="form-select">
+                            <option value="A">A조</option>
+                            <option value="B">B조</option>
+                            <option value="C">C조</option>
+                            <option value="N">통상</option>
+                        </select></div>
+                    <div class="col-md-4 mb-3"><label>고정 휴무요일</label><input type="text" name="off_days"
+                            class="form-control"></div>
+                </div>
+                <button type="submit" class="btn btn-success w-100">직원 추가하기</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal fade" id="editModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5>직원 정보 수정</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form action="{{ url_for('update_staff') }}" method="POST">
+                        <input type="hidden" id="edit_original_name" name="original_name">
+                        <div class="mb-3"><label>이름</label><input type="text" id="edit_name" name="name"
+                                class="form-control" required></div>
+                        <div class="mb-3"><label>근무 형태</label><select id="edit_shift" name="shift" class="form-select">
+                                <option value="A">A조</option>
+                                <option value="B">B조</option>
+                                <option value="C">C조</option>
+                                <option value="N">통상</option>
+                            </select></div>
+                        <div class="mb-3"><label>고정 휴무일</label><input type="text" id="edit_off_days" name="off_days"
+                                class="form-control"></div>
+                        <button type="submit" class="btn btn-primary w-100">수정 완료</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
+    <script>
+        function openEditModal(name, shift, offDays) {
+            document.getElementById('edit_original_name').value = name;
+            document.getElementById('edit_name').value = name;
+            document.getElementById('edit_shift').value = shift;
+            document.getElementById('edit_off_days').value = offDays === 'None' ? '' : offDays;
+            new bootstrap.Modal(document.getElementById('editModal')).show();
+        }
+
+    </script>
+</body>
+
+</html>
